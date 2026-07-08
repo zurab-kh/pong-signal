@@ -12,7 +12,7 @@ export const TICK_MS = 16
 export const ROUND_PAUSE_MS = 1800
 export const COUNTDOWN_MS = 3200
 export const JOIN_GRACE_MS = 2500
-export const MAX_CATCHUP_TICKS = 6
+export const MAX_CATCHUP_TICKS = 12
 
 export interface QueuePlayer {
   playerId: string
