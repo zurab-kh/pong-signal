@@ -8,7 +8,7 @@ import {
 } from './shared/pong.ts'
 import { paddleLerp, type PvpRole } from './shared/pvpWire.ts'
 
-export const TICK_MS = 33
+export const TICK_MS = 16
 export const ROUND_PAUSE_MS = 1800
 export const COUNTDOWN_MS = 3200
 export const JOIN_GRACE_MS = 2500
