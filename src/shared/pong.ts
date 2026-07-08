@@ -12,6 +12,15 @@ export const PLAYER_Y = 1380
 export const OPP_Y = 102
 export const WALL_PAD = 8
 
+// ── Ball physics tuning ──
+export const BASE_SPEED = 340
+export const MAX_SPEED = 760
+export const ACCEL_PER_SEC = 0.045
+export const ACCEL_CAP = 1.8
+export const PADDLE_SPEED_BOOST = 1.04
+export const WALL_BOUNCE_BOOST = 1.005
+export const MAX_BOUNCE_ANGLE = 1.05
+
 export type PowerKind = 'grow' | 'shrink' | 'fast' | 'slow' | 'split' | 'blaze' | 'curve'
 export type PowerCategory = 'paddle' | 'ball' | 'chaos'
 
@@ -44,7 +53,7 @@ export const POWER_CATALOG: PowerDef[] = [
     label: 'Сужение',
     desc: 'Сужает ракетку соперника',
     icon: '⊖',
-    dur: 6,
+    dur: 5,
     category: 'paddle',
   },
   {
@@ -69,8 +78,8 @@ export const POWER_CATALOG: PowerDef[] = [
   },
   {
     kind: 'blaze',
-    color: '#fb923c',
-    glow: 'rgba(251,146,60,0.6)',
+    color: '#f97316',
+    glow: 'rgba(249,115,22,0.6)',
     label: 'Пламя',
     desc: 'Огненный разгон мяча',
     icon: '🔥',
@@ -152,15 +161,14 @@ function seededRand(seed: number): () => number {
 
 export function createWorld(seed = Date.now()): PongWorld {
   const rand = seededRand(seed)
-  const angle = (rand() > 0.5 ? 1 : -1) * (0.35 + rand() * 0.4)
   const dir = rand() > 0.5 ? 1 : -1
-  const speed = 320
+  const angle = (0.2 + rand() * 0.35) * Math.PI
   return {
     ball: {
       x: FIELD_W / 2,
       y: FIELD_H / 2,
-      vx: Math.sin(angle) * speed * 0.6,
-      vy: Math.cos(angle) * speed * dir,
+      vx: Math.sin(angle) * BASE_SPEED,
+      vy: Math.cos(angle) * BASE_SPEED * dir,
     },
     player: { x: FIELD_W / 2, w: PADDLE_W },
     opponent: { x: FIELD_W / 2, w: PADDLE_W },
@@ -184,14 +192,16 @@ function paddleWidth(base: number, buffs: ActiveBuff[], now: number, kind: Power
 }
 
 function speedMul(buffs: ActiveBuff[], now: number): number {
-  let m = 1
+  // Speed boosts (fast/blaze) do NOT stack — take the strongest.
+  let boost = 1
+  let slow = 1
   for (const b of buffs) {
     if (b.until < now) continue
-    if (b.kind === 'fast') m *= 1.35
-    if (b.kind === 'slow') m *= 0.75
-    if (b.kind === 'blaze') m *= 1.28
+    if (b.kind === 'fast') boost = Math.max(boost, 1.32)
+    if (b.kind === 'blaze') boost = Math.max(boost, 1.22)
+    if (b.kind === 'slow') slow *= 0.78
   }
-  return m
+  return boost * slow
 }
 
 function hasBuff(buffs: ActiveBuff[], now: number, kind: PowerKind): boolean {
@@ -272,21 +282,26 @@ function hitPaddle(ball: Ball, paddle: Paddle, py: number, isPlayer: boolean): b
 
   if (ball.x + BALL_R < left || ball.x - BALL_R > right) return false
 
-  if (isPlayer && ball.vy > 0 && ball.y + BALL_R >= top && ball.y <= bottom + BALL_R * 2) {
-    ball.y = top - BALL_R - 1
-    ball.vy = -Math.abs(ball.vy) * 1.05
-    const hit = (ball.x - paddle.x) / (paddle.w / 2)
-    ball.vx += hit * 150
-    return true
-  }
-  if (!isPlayer && ball.vy < 0 && ball.y - BALL_R <= bottom && ball.y >= top - BALL_R * 2) {
-    ball.y = bottom + BALL_R + 1
-    ball.vy = Math.abs(ball.vy) * 1.05
-    const hit = (ball.x - paddle.x) / (paddle.w / 2)
-    ball.vx += hit * 150
-    return true
-  }
-  return false
+  const touchesPlayer = isPlayer && ball.vy > 0 && ball.y + BALL_R >= top && ball.y <= bottom + BALL_R * 2
+  const touchesOpp = !isPlayer && ball.vy < 0 && ball.y - BALL_R <= bottom && ball.y >= top - BALL_R * 2
+  if (!touchesPlayer && !touchesOpp) return false
+
+  // hit: -1 (edge) .. +1 (other edge); normalised point of contact on the paddle.
+  const hit = Math.max(-1, Math.min(1, (ball.x - paddle.x) / (paddle.w / 2)))
+  const dir = isPlayer ? -1 : 1
+
+  // Bounce direction comes from the contact angle — a paddle-edge hit sends the ball
+  // off at a steep angle, the centre sends it straight back. Direction, not accumulation.
+  const angle = hit * MAX_BOUNCE_ANGLE
+  const curSpeed = Math.hypot(ball.vx, ball.vy)
+  const targetSpeed = Math.min(MAX_SPEED, Math.max(BASE_SPEED * 0.85, curSpeed * PADDLE_SPEED_BOOST))
+
+  ball.vx = Math.sin(angle) * targetSpeed
+  ball.vy = Math.cos(angle) * targetSpeed * dir
+
+  // Push out of the paddle to avoid sticking.
+  ball.y = isPlayer ? top - BALL_R - 1 : bottom + BALL_R + 1
+  return true
 }
 
 export type RoundOutcome = 'playing' | 'player' | 'opponent'
@@ -308,7 +323,7 @@ export function activeBuffKinds(buffs: ActiveBuff[], now: number): PowerKind[] {
 }
 
 export function speedFactor(world: PongWorld, now: number): number {
-  const accel = 1 + world.elapsed * 0.09
+  const accel = Math.min(ACCEL_CAP, 1 + world.elapsed * ACCEL_PER_SEC)
   const touchMul =
     world.lastTouch === 'player'
       ? speedMul(world.playerBuffs, now)
@@ -351,7 +366,7 @@ export function stepWorld(world: PongWorld, dt: number, now: number): StepResult
   world.player.w = paddleWidth(world.player.w, world.playerBuffs, now, 'shrink')
   world.opponent.w = paddleWidth(world.opponent.w, world.opponentBuffs, now, 'shrink')
 
-  const accel = 1 + world.elapsed * 0.09
+  const accel = Math.min(ACCEL_CAP, 1 + world.elapsed * ACCEL_PER_SEC)
   const pMul = speedMul(world.playerBuffs, now)
   const oMul = speedMul(world.opponentBuffs, now)
   const touchMul = world.lastTouch === 'player' ? pMul : world.lastTouch === 'opponent' ? oMul : 1
@@ -367,11 +382,11 @@ export function stepWorld(world: PongWorld, dt: number, now: number): StepResult
 
   if (ball.x - BALL_R <= WALL_PAD) {
     ball.x = WALL_PAD + BALL_R
-    ball.vx = Math.abs(ball.vx) * 1.02
+    ball.vx = Math.abs(ball.vx) * WALL_BOUNCE_BOOST
   }
   if (ball.x + BALL_R >= FIELD_W - WALL_PAD) {
     ball.x = FIELD_W - WALL_PAD - BALL_R
-    ball.vx = -Math.abs(ball.vx) * 1.02
+    ball.vx = -Math.abs(ball.vx) * WALL_BOUNCE_BOOST
   }
 
   if (hitPaddle(ball, world.player, PLAYER_Y, true)) world.lastTouch = 'player'
@@ -379,7 +394,7 @@ export function stepWorld(world: PongWorld, dt: number, now: number): StepResult
 
   const split =
     hasBuff(world.playerBuffs, now, 'split') || hasBuff(world.opponentBuffs, now, 'split')
-  if (split && Math.random() < 0.025) ball.vx *= -1
+  if (split && Math.random() < 0.07) ball.vx *= -1
 
   world.spawnTimer -= dt
   if (world.spawnTimer <= 0 && world.powerUps.length < 2) {
