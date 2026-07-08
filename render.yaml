@@ -4,7 +4,8 @@ services:
     runtime: node
     plan: free
     region: frankfurt
-
+    repo: https://github.com/zurab-kh/pong-signal
+    branch: main
     buildCommand: npm install
     startCommand: npm start
     healthCheckPath: /health
