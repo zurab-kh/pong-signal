@@ -95,6 +95,29 @@ export function createMatchManager(slog: (event: string, detail?: string) => voi
     if (idx >= 0) queue.splice(idx, 1)
   }
 
+  function broadcastQueue() {
+    const waiting = queue.length
+    for (const e of queue) {
+      if (e.ws.readyState === 1) {
+        send(e.ws, { type: 'queue', waiting })
+      }
+    }
+  }
+
+  function tryPairAll() {
+    while (queue.length >= 2) {
+      const a = queue[0]
+      const bIdx = queue.findIndex(
+        (e, i) => i > 0 && e.playerId !== a.playerId && e.ws.readyState === 1,
+      )
+      if (bIdx < 0) break
+      const b = queue[bIdx]
+      removeFromQueue(a.ws)
+      removeFromQueue(b.ws)
+      pairPlayers(a, b)
+    }
+  }
+
   function destroyRoom(matchId: string) {
     const room = rooms.get(matchId)
     if (!room) return
@@ -241,7 +264,9 @@ export function createMatchManager(slog: (event: string, detail?: string) => voi
     }
 
     queue.push(item)
-    send(ws, { type: 'searching', ticketId: item.ticketId })
+    send(ws, { type: 'searching', ticketId: item.ticketId, waiting: queue.length })
+    broadcastQueue()
+    tryPairAll()
     slog('match:queued', `${playerId} (${queue.length} waiting)`)
     return item
   }
@@ -313,6 +338,8 @@ export function createMatchManager(slog: (event: string, detail?: string) => voi
         queue.splice(i, 1)
       }
     }
+    tryPairAll()
+    broadcastQueue()
   }
 
   return {
