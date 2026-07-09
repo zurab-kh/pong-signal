@@ -82,7 +82,7 @@ export const POWER_CATALOG: PowerDef[] = [
     glow: 'rgba(249,115,22,0.6)',
     label: 'Пламя',
     desc: 'Огненный разгон мяча',
-    icon: '🔥',
+    icon: '✸',
     dur: 4,
     category: 'ball',
   },
