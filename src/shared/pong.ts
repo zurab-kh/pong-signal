@@ -149,6 +149,9 @@ export interface PongWorld {
   elapsed: number
   lastTouch: 'player' | 'opponent' | null
   spawnTimer: number
+  /** Rallies: consecutive paddle hits in the current point. Drives heat & dynamic spawn. */
+  rally: number
+  rallyPeak: number
 }
 
 function seededRand(seed: number): () => number {
@@ -178,6 +181,8 @@ export function createWorld(seed = Date.now()): PongWorld {
     elapsed: 0,
     lastTouch: null,
     spawnTimer: 2.5 + rand() * 2,
+    rally: 0,
+    rallyPeak: 0,
   }
 }
 
@@ -333,6 +338,11 @@ export function speedFactor(world: PongWorld, now: number): number {
   return accel * touchMul
 }
 
+/** Rally heat 0..1 — 0 at start, 1 when the rally is long (≥12 hits). Drives arena visuals. */
+export function rallyHeat(world: PongWorld): number {
+  return Math.min(1, Math.max(0, world.rally / 12))
+}
+
 function tryPickup(
   world: PongWorld,
   p: PowerUp,
@@ -389,17 +399,31 @@ export function stepWorld(world: PongWorld, dt: number, now: number): StepResult
     ball.vx = -Math.abs(ball.vx) * WALL_BOUNCE_BOOST
   }
 
-  if (hitPaddle(ball, world.player, PLAYER_Y, true)) world.lastTouch = 'player'
-  if (hitPaddle(ball, world.opponent, OPP_Y, false)) world.lastTouch = 'opponent'
+  if (hitPaddle(ball, world.player, PLAYER_Y, true)) {
+    world.lastTouch = 'player'
+    world.rally += 1
+    if (world.rally > world.rallyPeak) world.rallyPeak = world.rally
+  }
+  if (hitPaddle(ball, world.opponent, OPP_Y, false)) {
+    world.lastTouch = 'opponent'
+    world.rally += 1
+    if (world.rally > world.rallyPeak) world.rallyPeak = world.rally
+  }
 
   const split =
     hasBuff(world.playerBuffs, now, 'split') || hasBuff(world.opponentBuffs, now, 'split')
   if (split && Math.random() < 0.07) ball.vx *= -1
 
+  // Dynamic power-up spawn: longer rallies heat up → buffs appear faster & more often.
+  // Base ~4.5s; at rally≥8 the arena is "hot" and up to 3 buffs can coexist.
   world.spawnTimer -= dt
-  if (world.spawnTimer <= 0 && world.powerUps.length < 2) {
+  const hot = world.rally >= 8
+  const maxPowerUps = hot ? 3 : 2
+  if (world.spawnTimer <= 0 && world.powerUps.length < maxPowerUps) {
     world.powerUps.push(spawnPower(world, now))
-    world.spawnTimer = 3 + Math.random() * 3
+    // Hot rallies shorten the spawn interval: 4.5s → down to ~2.2s at rally 14+.
+    const heat = Math.min(1, Math.max(0, (world.rally - 4) / 10))
+    world.spawnTimer = (4.5 - heat * 2.3) + Math.random() * 1.2
   }
 
   world.powerUps = world.powerUps

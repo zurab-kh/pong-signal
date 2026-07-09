@@ -18,6 +18,8 @@ export interface WireState {
   opponentBuffs: { kind: PowerKind; until: number }[]
   elapsed: number
   lastTouch: 'player' | 'opponent' | null
+  rally: number
+  rallyPeak: number
 }
 
 export function worldToWire(world: PongWorld): WireState {
@@ -30,6 +32,8 @@ export function worldToWire(world: PongWorld): WireState {
     opponentBuffs: world.opponentBuffs.map((b) => ({ ...b })),
     elapsed: world.elapsed,
     lastTouch: world.lastTouch,
+    rally: world.rally,
+    rallyPeak: world.rallyPeak,
   }
 }
 
@@ -44,6 +48,8 @@ export function wireToWorld(wire: WireState, spawnTimer = 99): PongWorld {
     elapsed: wire.elapsed,
     lastTouch: wire.lastTouch,
     spawnTimer,
+    rally: wire.rally ?? 0,
+    rallyPeak: wire.rallyPeak ?? 0,
   }
 }
 
@@ -65,6 +71,8 @@ export function wireForRole(wire: WireState, role: PvpRole): WireState {
     elapsed: wire.elapsed,
     lastTouch:
       wire.lastTouch === 'player' ? 'opponent' : wire.lastTouch === 'opponent' ? 'player' : null,
+    rally: wire.rally,
+    rallyPeak: wire.rallyPeak,
   }
 }
 
